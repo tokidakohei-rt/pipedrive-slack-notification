@@ -181,15 +181,29 @@ def get_deals_by_stage(pipeline_id: str, stage_id: str) -> List[Dict]:
         data = response.json()
         
         if not data.get('success'):
-            logger.error(f'Pipedrive API エラー: {data.get("error", "Unknown error")}')
+            error_msg = data.get('error', 'Unknown error')
+            logger.error(f'Pipedrive API エラー (stage_id: {stage_id}): {error_msg}')
             return []
         
-        deals = data.get('data', [])
+        deals = data.get('data')
+        
+        # dataがNoneの場合やリストでない場合は空リストを返す
+        if deals is None:
+            logger.warning(f'ステージ {stage_id} のDealデータがNoneです')
+            return []
+        
+        if not isinstance(deals, list):
+            logger.warning(f'ステージ {stage_id} のDealデータがリストではありません: {type(deals)}')
+            return []
+        
         logger.info(f'ステージ {stage_id} から {len(deals)} 件のDealを取得')
         return deals
         
     except requests.exceptions.RequestException as e:
         logger.error(f'Deal情報の取得に失敗 (stage_id: {stage_id}): {e}')
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f'レスポンスステータス: {e.response.status_code}')
+            logger.error(f'レスポンスボディ: {e.response.text}')
         return []
 
 
