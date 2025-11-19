@@ -186,14 +186,32 @@ def send_to_slack(message: str) -> bool:
     """
     payload = {'text': message}
     
+    # デバッグ: メッセージ内容をログ出力（機密情報は含まない）
+    logger.info(f'Slackに送信するメッセージ長: {len(message)} 文字')
+    logger.debug(f'メッセージ内容: {message[:200]}...' if len(message) > 200 else f'メッセージ内容: {message}')
+    
     try:
         response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=30)
+        
+        # レスポンスの詳細をログ出力
+        logger.info(f'Slack API レスポンス: ステータスコード={response.status_code}')
+        logger.debug(f'レスポンスボディ: {response.text}')
+        
         response.raise_for_status()
-        logger.info('Slackへの投稿に成功')
-        return True
+        
+        # Slack Incoming Webhookは成功時に "ok" を返す
+        if response.text.strip() == 'ok':
+            logger.info('Slackへの投稿に成功')
+            return True
+        else:
+            logger.warning(f'Slack APIが予期しないレスポンスを返しました: {response.text}')
+            return True  # ステータスコードが200なら成功とみなす
         
     except requests.exceptions.RequestException as e:
         logger.error(f'Slackへの投稿に失敗: {e}')
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f'レスポンスステータス: {e.response.status_code}')
+            logger.error(f'レスポンスボディ: {e.response.text}')
         return False
 
 
@@ -216,6 +234,7 @@ def main():
     
     # Slackメッセージをフォーマット
     message = format_slack_message(stage_companies)
+    logger.info(f'フォーマット済みメッセージ: {len(message)} 文字')
     
     # Slackに投稿
     if send_to_slack(message):
