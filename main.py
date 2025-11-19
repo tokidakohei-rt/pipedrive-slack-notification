@@ -255,7 +255,7 @@ def format_slack_message(stage_companies: Dict[str, Set[str]]) -> str:
     Returns:
         フォーマット済みメッセージ
     """
-    message_parts = ['本日のPipedriveパイプライン状況\n']
+    message_parts = ['本日のNEWT Chat パイプライン状況\n']
     
     for stage_name, companies in stage_companies.items():
         message_parts.append(f'【ステージ: {stage_name}】')
@@ -330,7 +330,7 @@ def main():
         logger.error('2. パイプラインにステージが設定されているか確認')
         logger.error('3. APIトークンにパイプラインへのアクセス権限があるか確認')
         # ステージがない場合でもSlackに通知する（空のメッセージ）
-        message = '本日のPipedriveパイプライン状況\n\nステージが見つかりませんでした。パイプラインIDとアクセス権限を確認してください。'
+        message = '本日のNEWT Chat パイプライン状況\n\nステージが見つかりませんでした。パイプラインIDとアクセス権限を確認してください。'
         send_to_slack(message)
         sys.exit(1)
     
