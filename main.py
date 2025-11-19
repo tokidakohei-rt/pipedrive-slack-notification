@@ -51,29 +51,45 @@ def get_pipeline_stages(pipeline_id: str) -> List[Dict]:
     Returns:
         ステージ情報のリスト
     """
-    url = f'{PIPEDRIVE_API_BASE}/pipelines/{pipeline_id}'
+    url = f'{PIPEDRIVE_API_BASE}/pipelines/{pipeline_id}/stages'
     params = {'api_token': PIPEDRIVE_API_TOKEN}
     
     try:
+        logger.info(f'パイプラインのステージ情報を取得中: pipeline_id={pipeline_id}')
         response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         
+        logger.debug(f'Pipedrive API レスポンス: {data}')
+        
         if not data.get('success'):
-            logger.error(f'Pipedrive API エラー: {data.get("error", "Unknown error")}')
+            error_msg = data.get('error', 'Unknown error')
+            logger.error(f'Pipedrive API エラー: {error_msg}')
+            logger.error(f'レスポンス全体: {data}')
             sys.exit(1)
         
-        pipeline_data = data.get('data', {})
-        stages = pipeline_data.get('stages', [])
+        stages = data.get('data', [])
+        
+        if not stages:
+            logger.warning(f'パイプライン {pipeline_id} にステージが見つかりませんでした')
+            logger.warning(f'レスポンス全体: {data}')
+            # 空のリストを返す（エラーではなく警告として扱う）
+            return []
         
         # ステージをorder_nrでソート
         stages_sorted = sorted(stages, key=lambda x: x.get('order_nr', 0))
         
         logger.info(f'パイプライン {pipeline_id} から {len(stages_sorted)} 個のステージを取得')
+        for i, stage in enumerate(stages_sorted, 1):
+            logger.info(f'  ステージ {i}: id={stage.get("id")}, name={stage.get("name")}, order_nr={stage.get("order_nr")}')
+        
         return stages_sorted
         
     except requests.exceptions.RequestException as e:
-        logger.error(f'パイプライン情報の取得に失敗: {e}')
+        logger.error(f'パイプラインのステージ情報の取得に失敗: {e}')
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f'レスポンスステータス: {e.response.status_code}')
+            logger.error(f'レスポンスボディ: {e.response.text}')
         sys.exit(1)
 
 
@@ -128,10 +144,13 @@ def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, 
     """
     stage_companies: Dict[str, Set[str]] = {}
     
+    logger.info(f'ステージごとのDeal取得を開始: {len(stages)} ステージ')
+    
     for stage in stages:
         stage_id = str(stage.get('id'))
         stage_name = stage.get('name', '不明')
         
+        logger.info(f'ステージ "{stage_name}" (id: {stage_id}) のDealを取得中...')
         deals = get_deals_by_stage(pipeline_id, stage_id)
         companies = set()
         
@@ -139,9 +158,13 @@ def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, 
             title = deal.get('title', '').strip()
             if title:
                 companies.add(title)
+            else:
+                logger.debug(f'Deal id={deal.get("id")} のtitleが空です')
         
         stage_companies[stage_name] = companies
         logger.info(f'ステージ "{stage_name}": {len(companies)} 社')
+        if companies:
+            logger.debug(f'  企業名: {sorted(companies)}')
     
     return stage_companies
 
@@ -226,8 +249,14 @@ def main():
     stages = get_pipeline_stages(PIPELINE_ID)
     
     if not stages:
-        logger.warning('ステージが見つかりませんでした')
-        sys.exit(0)
+        logger.error('ステージが見つかりませんでした。以下を確認してください:')
+        logger.error('1. PIPELINE_IDが正しいか確認')
+        logger.error('2. パイプラインにステージが設定されているか確認')
+        logger.error('3. APIトークンにパイプラインへのアクセス権限があるか確認')
+        # ステージがない場合でもSlackに通知する（空のメッセージ）
+        message = '本日のPipedriveパイプライン状況\n\nステージが見つかりませんでした。パイプラインIDとアクセス権限を確認してください。'
+        send_to_slack(message)
+        sys.exit(1)
     
     # ステージごとに企業名をグルーピング
     stage_companies = group_companies_by_stage(PIPELINE_ID, stages)
