@@ -258,7 +258,7 @@ def format_slack_message(stage_companies: Dict[str, Set[str]]) -> str:
     message_parts = ['本日のNEWT Chat パイプライン状況\n']
     
     for stage_name, companies in stage_companies.items():
-        message_parts.append(f'【ステージ: {stage_name}】')
+        message_parts.append(f'【{stage_name}】')
         
         if companies:
             # 企業名をソートして表示
