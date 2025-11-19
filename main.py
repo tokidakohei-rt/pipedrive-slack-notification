@@ -51,11 +51,12 @@ def get_pipeline_stages(pipeline_id: str) -> List[Dict]:
     Returns:
         ステージ情報のリスト
     """
-    url = f'{PIPEDRIVE_API_BASE}/pipelines/{pipeline_id}/stages'
+    # まずパイプライン情報を取得してステージを取得する方法に戻す
+    url = f'{PIPEDRIVE_API_BASE}/pipelines/{pipeline_id}'
     params = {'api_token': PIPEDRIVE_API_TOKEN}
     
     try:
-        logger.info(f'パイプラインのステージ情報を取得中: pipeline_id={pipeline_id}')
+        logger.info(f'パイプライン情報を取得中: pipeline_id={pipeline_id}')
         response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -68,13 +69,21 @@ def get_pipeline_stages(pipeline_id: str) -> List[Dict]:
             logger.error(f'レスポンス全体: {data}')
             sys.exit(1)
         
-        stages = data.get('data', [])
+        pipeline_data = data.get('data')
+        if not pipeline_data:
+            logger.error(f'パイプライン {pipeline_id} のデータが見つかりませんでした')
+            logger.error(f'レスポンス全体: {data}')
+            sys.exit(1)
+        
+        # パイプライン情報からステージを取得
+        stages = pipeline_data.get('stages', [])
         
         if not stages:
             logger.warning(f'パイプライン {pipeline_id} にステージが見つかりませんでした')
-            logger.warning(f'レスポンス全体: {data}')
-            # 空のリストを返す（エラーではなく警告として扱う）
-            return []
+            logger.warning(f'パイプラインデータのキー: {list(pipeline_data.keys())}')
+            # ステージが直接含まれていない場合、別の方法で取得を試みる
+            logger.info('ステージがパイプライン情報に含まれていないため、/stagesエンドポイントから取得を試みます')
+            return get_stages_by_pipeline_id(pipeline_id)
         
         # ステージをorder_nrでソート
         stages_sorted = sorted(stages, key=lambda x: x.get('order_nr', 0))
@@ -86,11 +95,64 @@ def get_pipeline_stages(pipeline_id: str) -> List[Dict]:
         return stages_sorted
         
     except requests.exceptions.RequestException as e:
-        logger.error(f'パイプラインのステージ情報の取得に失敗: {e}')
+        logger.error(f'パイプライン情報の取得に失敗: {e}')
         if hasattr(e, 'response') and e.response is not None:
             logger.error(f'レスポンスステータス: {e.response.status_code}')
             logger.error(f'レスポンスボディ: {e.response.text}')
         sys.exit(1)
+
+
+def get_stages_by_pipeline_id(pipeline_id: str) -> List[Dict]:
+    """
+    /stagesエンドポイントからパイプラインIDでフィルタリングしてステージを取得
+    
+    Args:
+        pipeline_id: パイプラインID
+        
+    Returns:
+        ステージ情報のリスト
+    """
+    url = f'{PIPEDRIVE_API_BASE}/stages'
+    params = {
+        'api_token': PIPEDRIVE_API_TOKEN,
+        'pipeline_id': pipeline_id
+    }
+    
+    try:
+        logger.info(f'/stagesエンドポイントからステージ情報を取得中: pipeline_id={pipeline_id}')
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        logger.debug(f'Pipedrive API レスポンス: {data}')
+        
+        if not data.get('success'):
+            error_msg = data.get('error', 'Unknown error')
+            logger.error(f'Pipedrive API エラー: {error_msg}')
+            logger.error(f'レスポンス全体: {data}')
+            return []
+        
+        stages = data.get('data', [])
+        
+        if not stages:
+            logger.warning(f'パイプライン {pipeline_id} にステージが見つかりませんでした')
+            return []
+        
+        # ステージをorder_nrでソート
+        stages_sorted = sorted(stages, key=lambda x: x.get('order_nr', 0))
+        
+        logger.info(f'/stagesエンドポイントから {len(stages_sorted)} 個のステージを取得')
+        for i, stage in enumerate(stages_sorted, 1):
+            logger.info(f'  ステージ {i}: id={stage.get("id")}, name={stage.get("name")}, order_nr={stage.get("order_nr")}')
+        
+        return stages_sorted
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f'/stagesエンドポイントからの取得に失敗: {e}')
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f'レスポンスステータス: {e.response.status_code}')
+            logger.error(f'レスポンスボディ: {e.response.text}')
+        return []
 
 
 def get_deals_by_stage(pipeline_id: str, stage_id: str) -> List[Dict]:
