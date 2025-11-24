@@ -1,8 +1,0 @@
-{
-    "rewrites": [
-        {
-            "source": "/api/deal-ui",
-            "destination": "/api/deal-ui.js"
-        }
-    ]
-}

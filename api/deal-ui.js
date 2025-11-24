@@ -8,16 +8,21 @@ const PIPELINE_ID = 32;
 
 module.exports = async (req, res) => {
     try {
-        // 1. Parse the request body
-        // Slack sends x-www-form-urlencoded
-        // For Slash Command: body is the payload
-        // For Interactivity: body.payload is a JSON string
+        // Handle GET requests (Browser check)
+        if (req.method === 'GET') {
+            return res.status(200).send('Hello from Deal UI (GET request received)');
+        }
 
-        let body = req.body;
+        // 1. Parse the request body
+        let body = req.body || {};
         let payload = null;
 
         if (body.payload) {
-            payload = JSON.parse(body.payload);
+            try {
+                payload = JSON.parse(body.payload);
+            } catch (e) {
+                console.error('Error parsing payload:', e);
+            }
         }
 
         // 2. Routing
@@ -35,7 +40,7 @@ module.exports = async (req, res) => {
             return res.status(200).send(); // Must return empty 200 to close modal, or update view
         }
 
-        return res.status(200).send('Hello from Deal UI');
+        return res.status(200).send('Hello from Deal UI (POST request received)');
 
     } catch (error) {
         console.error('Error:', error);
