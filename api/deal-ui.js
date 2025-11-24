@@ -163,12 +163,13 @@ async function openModal(trigger_id) {
         ]
     };
 
-    await axios.post('https://slack.com/api/views.open', {
+    const slackRes = await axios.post('https://slack.com/api/views.open', {
         trigger_id: trigger_id,
         view: modal
     }, {
         headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
     });
+    console.log(`[Slack API] views.open response:`, JSON.stringify(slackRes.data));
 }
 
 async function handleBlockActions(payload) {
