@@ -284,12 +284,14 @@ async function handleViewSubmission(payload) {
 
     // Update Pipedrive
     await updateDealStage(dealId, targetStageId);
+    const deal = await fetchDeal(dealId);
+    const stage = await fetchStage(targetStageId);
 
     // Notify User (optional, or just close modal)
     // To send a message, we need chat.postMessage
     const slackRes = await axios.post('https://slack.com/api/chat.postMessage', {
         channel: targetChannel,
-        text: `<@${userId}> が Deal ID ${dealId} をステージ ${targetStageId} に移動しました。`
+        text: `<@${userId}> が "${deal?.title || `Deal ${dealId}`}" をステージ "${stage?.name || `Stage ${targetStageId}`}" に移動しました。`
     }, {
         headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
     });
@@ -331,6 +333,30 @@ async function updateDealStage(dealId, stageId) {
         });
     } catch (e) {
         console.error('Update Deal Error', e);
+    }
+}
+
+async function fetchDeal(dealId) {
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
+    try {
+        const res = await axios.get(`https://api.pipedrive.com/v1/deals/${dealId}?api_token=${PIPEDRIVE_API_TOKEN}`);
+        return res.data.data || null;
+    } catch (e) {
+        console.error('Fetch Deal Error', e);
+        return null;
+    }
+}
+
+async function fetchStage(stageId) {
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
+    try {
+        const res = await axios.get(`https://api.pipedrive.com/v1/stages/${stageId}?api_token=${PIPEDRIVE_API_TOKEN}`);
+        return res.data.data || null;
+    } catch (e) {
+        console.error('Fetch Stage Error', e);
+        return null;
     }
 }
 
