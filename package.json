@@ -1,0 +1,16 @@
+{
+    "name": "pipedrive-slack-notification",
+    "version": "1.0.0",
+    "description": "Pipedrive Slack Notification & UI",
+    "main": "api/deal-ui.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "dependencies": {
+        "axios": "^1.6.0",
+        "qs": "^6.11.0"
+    },
+    "engines": {
+        "node": "22.x"
+    }
+}
