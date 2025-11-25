@@ -118,6 +118,7 @@ async function openModal(trigger_id) {
             {
                 type: 'input',
                 block_id: 'current_stage_block',
+                dispatch_action: true,
                 label: {
                     type: 'plain_text',
                     text: '現在のステージ'
@@ -125,7 +126,6 @@ async function openModal(trigger_id) {
                 element: {
                     type: 'static_select',
                     action_id: 'current_stage_select',
-                    dispatch_action: true,
                     placeholder: {
                         type: 'plain_text',
                         text: 'ステージを選択'
@@ -215,11 +215,11 @@ async function handleBlockActions(payload) {
             {
                 type: 'input',
                 block_id: 'current_stage_block',
+                dispatch_action: true,
                 label: { type: 'plain_text', text: '現在のステージ' },
                 element: {
                     type: 'static_select',
                     action_id: 'current_stage_select',
-                    dispatch_action: true,
                     placeholder: { type: 'plain_text', text: 'ステージを選択' },
                     options: stages.map(s => ({ text: { type: 'plain_text', text: s.name }, value: String(s.id) })),
                     initial_option: action.selected_option
