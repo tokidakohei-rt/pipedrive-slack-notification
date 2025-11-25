@@ -1,3 +1,6 @@
+process.env.SLACK_BOT_TOKEN = 'test-slack-token';
+process.env.PIPEDRIVE_API_TOKEN = 'test-pipedrive-token';
+
 const handler = require('../api/deal-ui');
 const axios = require('axios');
 

@@ -17,7 +17,8 @@ module.exports = async (req, res) => {
         }
 
         // 1. Parse the request body
-        let body = req.body || {};
+        let body = await readRequestBody(req);
+        body = body || {};
         console.log(`[${Date.now() - start}ms] Body type: ${typeof body}`);
 
         // If body is a string (raw), try to parse it
@@ -74,14 +75,19 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error(`[${Date.now() - start}ms] Error:`, error);
-        // Return 200 with error message to Slack if possible, or 500
-        return res.status(500).send('Internal Server Error');
+        const exposeToSlack = error && error.exposeToSlack;
+        const statusCode = exposeToSlack ? 200 : 500;
+        const message = exposeToSlack ? `エラー: ${error.message}` : 'Internal Server Error';
+        return res.status(statusCode).send(message);
     }
 };
 
 // --- Handlers ---
 
 async function openModal(trigger_id) {
+    requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
     const stages = await fetchStages();
 
     const modal = {
@@ -169,10 +175,13 @@ async function openModal(trigger_id) {
     }, {
         headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
     });
-    console.log(`[Slack API] views.open response:`, JSON.stringify(slackRes.data));
+    logSlackResponse('views.open', slackRes.data);
 }
 
 async function handleBlockActions(payload) {
+    requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
     const action = payload.actions[0];
 
     if (action.action_id === 'current_stage_select') {
@@ -227,7 +236,7 @@ async function handleBlockActions(payload) {
             }
         ];
 
-        await axios.post('https://slack.com/api/views.update', {
+        const slackRes = await axios.post('https://slack.com/api/views.update', {
             view_id: payload.view.id,
             view: {
                 type: 'modal',
@@ -239,10 +248,14 @@ async function handleBlockActions(payload) {
         }, {
             headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
         });
+        logSlackResponse('views.update', slackRes.data);
     }
 }
 
 async function handleViewSubmission(payload) {
+    requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
     const values = payload.view.state.values;
     const dealId = values.deal_block.deal_select.selected_option.value;
     const targetStageId = values.target_stage_block.target_stage_select.selected_option.value;
@@ -257,17 +270,20 @@ async function handleViewSubmission(payload) {
 
     // Notify User (optional, or just close modal)
     // To send a message, we need chat.postMessage
-    await axios.post('https://slack.com/api/chat.postMessage', {
+    const slackRes = await axios.post('https://slack.com/api/chat.postMessage', {
         channel: userId, // DM the user
         text: `Deal ID ${dealId} をステージ ${targetStageId} に移動しました。`
     }, {
         headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
     });
+    logSlackResponse('chat.postMessage', slackRes.data);
 }
 
 // --- Pipedrive Helpers ---
 
 async function fetchStages() {
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
     try {
         const res = await axios.get(`https://api.pipedrive.com/v1/stages?pipeline_id=${PIPELINE_ID}&api_token=${PIPEDRIVE_API_TOKEN}`);
         return res.data.data || [];
@@ -278,6 +294,8 @@ async function fetchStages() {
 }
 
 async function fetchDeals(stageId) {
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
     try {
         const res = await axios.get(`https://api.pipedrive.com/v1/deals?pipeline_id=${PIPELINE_ID}&stage_id=${stageId}&status=open&api_token=${PIPEDRIVE_API_TOKEN}`);
         return res.data.data || [];
@@ -288,6 +306,8 @@ async function fetchDeals(stageId) {
 }
 
 async function updateDealStage(dealId, stageId) {
+    requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+
     try {
         await axios.put(`https://api.pipedrive.com/v1/deals/${dealId}?api_token=${PIPEDRIVE_API_TOKEN}`, {
             stage_id: stageId
@@ -295,4 +315,52 @@ async function updateDealStage(dealId, stageId) {
     } catch (e) {
         console.error('Update Deal Error', e);
     }
+}
+
+async function readRequestBody(req) {
+    if (!req) {
+        return {};
+    }
+
+    if (typeof req.body === 'string' && req.body.length > 0) {
+        return req.body;
+    }
+
+    if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+        return req.body;
+    }
+
+    if (req.readable) {
+        const chunks = [];
+        for await (const chunk of req) {
+            chunks.push(chunk);
+        }
+        const raw = Buffer.concat(chunks).toString();
+        return raw;
+    }
+
+    return {};
+}
+
+function requireEnv(name, value) {
+    if (!value) {
+        const error = new Error(`環境変数 ${name} が設定されていません`);
+        error.exposeToSlack = true;
+        throw error;
+    }
+}
+
+function logSlackResponse(apiName, data) {
+    if (!data) {
+        console.error(`[Slack API] ${apiName} からレスポンスがありません`);
+        return;
+    }
+
+    if (!data.ok) {
+        const error = new Error(`Slack API ${apiName} エラー: ${data.error || 'unknown_error'}`);
+        error.exposeToSlack = true;
+        throw error;
+    }
+
+    console.log(`[Slack API] ${apiName} response:`, JSON.stringify(data));
 }
