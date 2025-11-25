@@ -371,6 +371,8 @@ function logSlackResponse(apiName, data) {
     }
 
     if (!data.ok) {
+        const detail = data.response_metadata?.messages || data.errors || data;
+        console.error(`[Slack API] ${apiName} error payload:`, JSON.stringify(detail));
         const error = new Error(`Slack API ${apiName} エラー: ${data.error || 'unknown_error'}`);
         error.exposeToSlack = true;
         throw error;
