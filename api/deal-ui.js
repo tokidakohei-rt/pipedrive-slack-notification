@@ -271,6 +271,7 @@ async function handleBlockActions(payload) {
 async function handleViewSubmission(payload) {
     requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
     requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
+    const targetChannel = requireEnv('SLACK_NOTIFY_CHANNEL', process.env.SLACK_NOTIFY_CHANNEL);
 
     const values = payload.view.state.values;
     const dealId = values.deal_block.deal_select.selected_option.value;
@@ -287,8 +288,8 @@ async function handleViewSubmission(payload) {
     // Notify User (optional, or just close modal)
     // To send a message, we need chat.postMessage
     const slackRes = await axios.post('https://slack.com/api/chat.postMessage', {
-        channel: userId, // DM the user
-        text: `Deal ID ${dealId} をステージ ${targetStageId} に移動しました。`
+        channel: targetChannel,
+        text: `<@${userId}> が Deal ID ${dealId} をステージ ${targetStageId} に移動しました。`
     }, {
         headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
     });
@@ -364,6 +365,8 @@ function requireEnv(name, value) {
         error.exposeToSlack = true;
         throw error;
     }
+
+    return value;
 }
 
 function logSlackResponse(apiName, data) {
