@@ -365,6 +365,8 @@ function requireEnv(name, value) {
 }
 
 function logSlackResponse(apiName, data) {
+    console.error(`[Slack API] ${apiName} raw:`, JSON.stringify(data, null, 2));
+
     if (!data) {
         console.error(`[Slack API] ${apiName} からレスポンスがありません`);
         return;
