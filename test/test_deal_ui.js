@@ -61,7 +61,7 @@ const mockRes = {
 async function runTests() {
     console.log('--- Test 1: Slash Command ---');
     await handler({
-        body: { command: '/deal-ui', trigger_id: 'trigger_123' }
+        body: { command: '/pipedrive-move', trigger_id: 'trigger_123' }
     }, mockRes);
 
     console.log('\n--- Test 2: Block Actions (Select Stage) ---');

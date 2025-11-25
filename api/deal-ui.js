@@ -50,7 +50,7 @@ module.exports = async (req, res) => {
         }
 
         // 2. Routing
-        if (body.command === '/deal-ui') {
+        if (body.command === '/pipedrive-move') {
             // Slash Command -> Open Modal
             console.log(`[${Date.now() - start}ms] Opening Modal...`);
             await openModal(body.trigger_id);
