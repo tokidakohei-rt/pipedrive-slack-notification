@@ -11,7 +11,6 @@ import sys
 import logging
 from typing import Dict, List, Set
 import requests
-import llm_reporter
 
 # ログ設定
 logging.basicConfig(
@@ -246,23 +245,17 @@ def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, 
     return stage_companies
 
 
-def format_slack_message(stage_companies: Dict[str, Set[str]], llm_report: str = "") -> str:
+def format_slack_message(stage_companies: Dict[str, Set[str]]) -> str:
     """
     Slackメッセージをフォーマット
     
     Args:
         stage_companies: ステージ名をキー、企業名のセットを値とする辞書
-        llm_report: LLMによる分析レポート
         
     Returns:
         フォーマット済みメッセージ
     """
     message_parts = ['本日のNEWT Chat パイプライン状況（※敬称略）\n']
-    
-    if llm_report:
-        message_parts.append('【AI分析レポート】')
-        message_parts.append(llm_report)
-        message_parts.append('')  # 空行
     
     for stage_name, companies in stage_companies.items():
         message_parts.append(f'【{stage_name}】')
@@ -270,8 +263,8 @@ def format_slack_message(stage_companies: Dict[str, Set[str]], llm_report: str =
         if companies:
             # 企業名をソートして表示
             sorted_companies = sorted(companies)
-            for company in sorted_companies:
-                message_parts.append(f'・{company}')
+            companies_line = ' / '.join(sorted_companies)
+            message_parts.append(f'・{companies_line}')
         else:
             message_parts.append('・該当なし')
         
@@ -344,11 +337,8 @@ def main():
     # ステージごとに企業名をグルーピング
     stage_companies = group_companies_by_stage(PIPELINE_ID, stages)
     
-    # LLMレポート生成
-    llm_report = llm_reporter.generate_report(stage_companies)
-    
     # Slackメッセージをフォーマット
-    message = format_slack_message(stage_companies, llm_report)
+    message = format_slack_message(stage_companies)
     logger.info(f'フォーマット済みメッセージ: {len(message)} 文字')
     
     # Slackに投稿

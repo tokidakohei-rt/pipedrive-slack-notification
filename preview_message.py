@@ -7,9 +7,7 @@ stage_companies = {
     '契約完了': set()
 }
 
-llm_report = "本日はリードステージに動きがありました。株式会社AとBが追加されています。"
-
 # Generate message
-message = format_slack_message(stage_companies, llm_report)
+message = format_slack_message(stage_companies)
 
 print(message)
