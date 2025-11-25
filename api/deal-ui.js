@@ -89,6 +89,19 @@ async function openModal(trigger_id) {
     requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
 
     const stages = await fetchStages();
+    if (!stages.length) {
+        const error = new Error('Pipedriveのステージが取得できません。パイプラインIDやAPI Tokenを確認してください。');
+        error.exposeToSlack = true;
+        throw error;
+    }
+
+    const dealPlaceholderOption = {
+        text: {
+            type: 'plain_text',
+            text: '先にステージを選択してください'
+        },
+        value: 'placeholder'
+    };
 
     const modal = {
         type: 'modal',
@@ -139,7 +152,8 @@ async function openModal(trigger_id) {
                         type: 'plain_text',
                         text: '先にステージを選択してください'
                     },
-                    options: [] // Empty initially
+                    options: [dealPlaceholderOption],
+                    initial_option: dealPlaceholderOption
                 },
                 optional: true // Optional initially to avoid validation error before selection? No, better to update it.
             },
