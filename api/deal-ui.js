@@ -579,11 +579,20 @@ async function getThreadTsForDeal(deal) {
 
     const inPayload = extractThreadTsFromDeal(deal);
     if (inPayload) {
+        console.log(`[Slack] Found thread_ts=${inPayload} in webhook payload (deal ${deal.id})`);
         return inPayload;
     }
 
     const freshDeal = await fetchDeal(deal.id);
-    return extractThreadTsFromDeal(freshDeal);
+    const fetched = extractThreadTsFromDeal(freshDeal);
+
+    if (fetched) {
+        console.log(`[Slack] Found thread_ts=${fetched} from API (deal ${deal.id})`);
+    } else {
+        console.log(`[Slack] thread_ts not found for deal ${deal.id}`);
+    }
+
+    return fetched;
 }
 
 function extractThreadTsFromDeal(deal) {
@@ -591,10 +600,13 @@ function extractThreadTsFromDeal(deal) {
         return null;
     }
 
-    const customValue = deal.custom_fields?.[SLACK_THREAD_TS_FIELD_KEY];
     const directValue = deal[SLACK_THREAD_TS_FIELD_KEY];
+    const customValue = deal.custom_fields?.[SLACK_THREAD_TS_FIELD_KEY];
+    const nestedValue = customValue?.value;
 
-    return normalizeFieldValue(customValue) || normalizeFieldValue(directValue);
+    return normalizeFieldValue(directValue)
+        || normalizeFieldValue(customValue)
+        || normalizeFieldValue(nestedValue);
 }
 
 function normalizeFieldValue(value) {
@@ -619,14 +631,12 @@ async function saveDealThreadTs(dealId, threadTs) {
     }
 
     const payload = {
-        [SLACK_THREAD_TS_FIELD_KEY]: threadTs,
-        custom_fields: {
-            [SLACK_THREAD_TS_FIELD_KEY]: threadTs
-        }
+        [SLACK_THREAD_TS_FIELD_KEY]: threadTs
     };
 
     try {
         await axios.put(`https://api.pipedrive.com/v1/deals/${dealId}?api_token=${PIPEDRIVE_API_TOKEN}`, payload);
+        console.log(`[Pipedrive] Saved thread_ts=${threadTs} to deal ${dealId}`);
     } catch (error) {
         console.error('[Pipedrive] Failed to save thread_ts:', error.message);
     }
