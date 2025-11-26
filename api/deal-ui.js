@@ -9,6 +9,7 @@ const PIPEDRIVE_API_TOKEN = process.env.PIPEDRIVE_API_TOKEN;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const PIPELINE_ID = 32;
 const AGENT_READY_STAGE_NAME = (process.env.AGENT_READY_STAGE_NAME || 'agent調整完了').trim();
+const SLACK_THREAD_TS_FIELD_KEY = process.env.SLACK_THREAD_TS_FIELD_KEY;
 const OWNER_SLACK_MAP_PATH = (process.env.OWNER_SLACK_MAP_PATH && path.resolve(process.env.OWNER_SLACK_MAP_PATH))
     || path.resolve(__dirname, '..', 'config', 'owner_slack_map.yaml');
 
@@ -571,6 +572,66 @@ function extractDealPayload(body) {
     return { current, previous };
 }
 
+async function getThreadTsForDeal(deal) {
+    if (!SLACK_THREAD_TS_FIELD_KEY || !deal) {
+        return null;
+    }
+
+    const inPayload = extractThreadTsFromDeal(deal);
+    if (inPayload) {
+        return inPayload;
+    }
+
+    const freshDeal = await fetchDeal(deal.id);
+    return extractThreadTsFromDeal(freshDeal);
+}
+
+function extractThreadTsFromDeal(deal) {
+    if (!deal || !SLACK_THREAD_TS_FIELD_KEY) {
+        return null;
+    }
+
+    const customValue = deal.custom_fields?.[SLACK_THREAD_TS_FIELD_KEY];
+    const directValue = deal[SLACK_THREAD_TS_FIELD_KEY];
+
+    return normalizeFieldValue(customValue) || normalizeFieldValue(directValue);
+}
+
+function normalizeFieldValue(value) {
+    if (!value) {
+        return null;
+    }
+
+    if (typeof value === 'string') {
+        return value;
+    }
+
+    if (typeof value === 'object' && typeof value.value === 'string') {
+        return value.value;
+    }
+
+    return null;
+}
+
+async function saveDealThreadTs(dealId, threadTs) {
+    if (!SLACK_THREAD_TS_FIELD_KEY || !dealId || !threadTs) {
+        return;
+    }
+
+    const payload = {
+        [SLACK_THREAD_TS_FIELD_KEY]: threadTs,
+        custom_fields: {
+            [SLACK_THREAD_TS_FIELD_KEY]: threadTs
+        }
+    };
+
+    try {
+        await axios.put(`https://api.pipedrive.com/v1/deals/${dealId}?api_token=${PIPEDRIVE_API_TOKEN}`, payload);
+    } catch (error) {
+        console.error('[Pipedrive] Failed to save thread_ts:', error.message);
+    }
+}
+
 async function notifyDealCreated(deal) {
     if (!deal) {
         return;
@@ -584,7 +645,10 @@ async function notifyDealCreated(deal) {
         `担当: ${ownerMention}`
     ];
 
-    await postSlackMessage(textLines.join('\n'));
+    const slackResponse = await postSlackMessage(textLines.join('\n'));
+    if (slackResponse?.ts) {
+        await saveDealThreadTs(deal.id, slackResponse.ts);
+    }
 }
 
 async function notifyDealStageChanged(deal) {
@@ -614,21 +678,29 @@ async function notifyDealStageChanged(deal) {
     const title = deal.title || `Deal ${deal.id || '不明'}`;
     const text = `${ownerMention ? `${ownerMention} ` : ''}案件「${title}」がステージ「${stageName}」へ移動しました。`;
 
-    await postSlackMessage(text);
+    const threadTs = await getThreadTsForDeal(deal);
+    const slackResponse = await postSlackMessage(text, { threadTs });
+
+    if (!threadTs && slackResponse?.ts) {
+        await saveDealThreadTs(deal.id, slackResponse.ts);
+    }
 }
 
 async function postSlackMessage(text, options = {}) {
     requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
     const channel = options.channel || requireEnv('SLACK_NOTIFY_CHANNEL', process.env.SLACK_NOTIFY_CHANNEL);
+    const payload = { channel, text };
 
-    const slackRes = await axios.post('https://slack.com/api/chat.postMessage', {
-        channel,
-        text
-    }, {
+    if (options.threadTs) {
+        payload.thread_ts = options.threadTs;
+    }
+
+    const slackRes = await axios.post('https://slack.com/api/chat.postMessage', payload, {
         headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
     });
 
     logSlackResponse('chat.postMessage', slackRes.data);
+    return slackRes.data;
 }
 
 function formatOwnerMention(ownerId) {

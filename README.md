@@ -48,7 +48,18 @@ cp config/owner_slack_map.sample.yaml config/owner_slack_map.yaml
 
 本ファイルは新規カード通知や「agent調整完了」ステージ移動時のメンションに利用されます。SlackユーザーIDは `@ユーザー名` ではなく `U` から始まる固有IDを使用してください。
 
-### 4. Pipedrive Webhook設定
+### 4. Slackスレッド追跡（任意）
+
+Slackのスレッドに後続通知をまとめたい場合は、PipedriveのDealにカスタムフィールド（テキスト）を作成してそのフィールドキーを `SLACK_THREAD_TS_FIELD_KEY` に設定してください。
+
+1. Pipedrive管理画面で Deal のカスタムフィールドを追加（例: フィールド名「Slack thread ts」）
+2. フィールド詳細に表示される「フィールドキー」（例: `abcd1234efgh5678`）を控える
+3. 環境変数 `SLACK_THREAD_TS_FIELD_KEY=abcd1234efgh5678` を設定してデプロイ
+4. 取引作成通知で取得したSlackの `thread_ts` がPipedrive側に保存され、ステータス更新時は同じスレッドへ返信、見つからない場合のみ新規投稿します
+
+設定しない場合は従来どおりチャンネルに新規投稿します。
+
+### 5. Pipedrive Webhook設定
 
 1. Pipedrive管理画面の **Tools > Webhooks** で新規Webhookを作成
 2. URL にデプロイ済みエンドポイント（例: `https://example.com/api/deal-ui`）を指定
@@ -61,8 +72,9 @@ cp config/owner_slack_map.sample.yaml config/owner_slack_map.yaml
 | --- | --- | --- |
 | `AGENT_READY_STAGE_NAME` | 「agent調整完了」に相当するステージ名 | 省略時は `agent調整完了` |
 | `OWNER_SLACK_MAP_PATH` | 対応表ファイルのパス | 省略時は `config/owner_slack_map.yaml` |
+| `SLACK_THREAD_TS_FIELD_KEY` | DealにSlack thread tsを保存するフィールドキー | 省略時はスレッド追跡を無効化 |
 
-### 5. 動作確認
+### 6. 動作確認
 
 #### 手動実行
 
