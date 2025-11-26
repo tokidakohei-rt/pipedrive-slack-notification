@@ -430,8 +430,16 @@ function isPipedriveWebhookPayload(body) {
     }
 
     const meta = body.meta;
-    if (meta && typeof meta.object === 'string') {
-        return meta.object.toLowerCase() === 'deal';
+    if (meta) {
+        if (typeof meta.object === 'string' && meta.object.toLowerCase() === 'deal') {
+            return true;
+        }
+        if (typeof meta.entity === 'string' && meta.entity.toLowerCase() === 'deal') {
+            return true;
+        }
+        if (typeof meta.type === 'string' && meta.type.toLowerCase() === 'deal') {
+            return true;
+        }
     }
 
     if (typeof body.object === 'string' && body.object.toLowerCase() === 'deal') {
@@ -447,7 +455,7 @@ function isPipedriveWebhookPayload(body) {
         return true;
     }
 
-    if (body.data && typeof body.data === 'object' && body.data.current) {
+    if (body.data && typeof body.data === 'object') {
         return true;
     }
 
@@ -524,6 +532,9 @@ function debugLogUnexpectedBody(body) {
 function inferDealAction(body) {
     const metaAction = body?.meta?.action;
     if (metaAction) {
+        if (metaAction === 'change') {
+            return 'updated';
+        }
         return metaAction;
     }
 
