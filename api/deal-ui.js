@@ -1,10 +1,18 @@
 const axios = require('axios');
 const qs = require('qs');
+const fs = require('fs');
+const path = require('path');
+const YAML = require('yaml');
 
 // Environment variables
 const PIPEDRIVE_API_TOKEN = process.env.PIPEDRIVE_API_TOKEN;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const PIPELINE_ID = 32;
+const AGENT_READY_STAGE_NAME = (process.env.AGENT_READY_STAGE_NAME || 'agent調整完了').trim();
+const OWNER_SLACK_MAP_PATH = (process.env.OWNER_SLACK_MAP_PATH && path.resolve(process.env.OWNER_SLACK_MAP_PATH))
+    || path.resolve(__dirname, '..', 'config', 'owner_slack_map.yaml');
+
+let ownerSlackMapCache = null;
 
 module.exports = async (req, res) => {
     const start = Date.now();
@@ -50,7 +58,13 @@ module.exports = async (req, res) => {
         }
 
         // 2. Routing
-        if (body.command === '/pipedrive-move') {
+        if (isPipedriveWebhookPayload(body)) {
+            console.log(`[${Date.now() - start}ms] Pipedrive webhook received.`);
+            debugLogPipedrivePayload(body);
+            await handlePipedriveWebhook(body);
+            console.log(`[${Date.now() - start}ms] Pipedrive webhook handled.`);
+            return res.status(200).send('ok');
+        } else if (body.command === '/pipedrive-move') {
             // Slash Command -> Open Modal
             console.log(`[${Date.now() - start}ms] Opening Modal...`);
             await openModal(body.trigger_id);
@@ -71,6 +85,7 @@ module.exports = async (req, res) => {
         }
 
         console.log(`[${Date.now() - start}ms] No matching route.`);
+        debugLogUnexpectedBody(body);
         return res.status(200).send('Hello from Deal UI (POST request received)');
 
     } catch (error) {
@@ -271,7 +286,6 @@ async function handleBlockActions(payload) {
 async function handleViewSubmission(payload) {
     requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
     requireEnv('PIPEDRIVE_API_TOKEN', PIPEDRIVE_API_TOKEN);
-    const targetChannel = requireEnv('SLACK_NOTIFY_CHANNEL', process.env.SLACK_NOTIFY_CHANNEL);
 
     const values = payload.view.state.values;
     const dealId = values.deal_block.deal_select.selected_option.value;
@@ -289,13 +303,7 @@ async function handleViewSubmission(payload) {
 
     // Notify User (optional, or just close modal)
     // To send a message, we need chat.postMessage
-    const slackRes = await axios.post('https://slack.com/api/chat.postMessage', {
-        channel: targetChannel,
-        text: `<@${userId}> が "${deal?.title || `Deal ${dealId}`}" をステージ "${stage?.name || `Stage ${targetStageId}`}" に移動しました。`
-    }, {
-        headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
-    });
-    logSlackResponse('chat.postMessage', slackRes.data);
+    await postSlackMessage(`<@${userId}> が "${deal?.title || `Deal ${dealId}`}" をステージ "${stage?.name || `Stage ${targetStageId}`}" に移動しました。`);
 }
 
 // --- Pipedrive Helpers ---
@@ -412,4 +420,249 @@ function logSlackResponse(apiName, data) {
     }
 
     console.log(`[Slack API] ${apiName} response:`, JSON.stringify(data));
+}
+
+// --- Pipedrive Webhook Helpers ---
+
+function isPipedriveWebhookPayload(body) {
+    if (!body || typeof body !== 'object') {
+        return false;
+    }
+
+    const meta = body.meta;
+    if (meta && typeof meta.object === 'string') {
+        return meta.object.toLowerCase() === 'deal';
+    }
+
+    if (typeof body.object === 'string' && body.object.toLowerCase() === 'deal') {
+        return true;
+    }
+
+    const eventName = (body.event || body.event_type || '').toString().toLowerCase();
+    if (eventName.startsWith('deal.')) {
+        return true;
+    }
+
+    if (body.current && typeof body.current === 'object') {
+        return true;
+    }
+
+    if (body.data && typeof body.data === 'object' && body.data.current) {
+        return true;
+    }
+
+    return false;
+}
+
+async function handlePipedriveWebhook(body) {
+    const event = classifyPipedriveEvent(body);
+
+    if (!event) {
+        console.log('[Pipedrive] No actionable event detected.');
+        return;
+    }
+
+    console.log(`[Pipedrive] Event detected: ${event.type}`);
+    if (event.type === 'deal_created') {
+        await notifyDealCreated(event.deal);
+    } else if (event.type === 'deal_stage_changed') {
+        await notifyDealStageChanged(event.deal);
+    }
+}
+
+function classifyPipedriveEvent(body) {
+    const action = inferDealAction(body);
+    const { current, previous } = extractDealPayload(body);
+
+    if (!current) {
+        return null;
+    }
+
+    if (action === 'added' || (!previous && action !== 'updated')) {
+        return {
+            type: 'deal_created',
+            deal: current
+        };
+    }
+
+    if ((action === 'updated' || previous) && previous) {
+        const currentStageId = current.stage_id;
+        const previousStageId = previous.stage_id;
+
+        if (typeof currentStageId !== 'undefined'
+            && typeof previousStageId !== 'undefined'
+            && currentStageId !== previousStageId) {
+            return {
+                type: 'deal_stage_changed',
+                deal: current,
+                previous
+            };
+        }
+    }
+
+    return null;
+}
+
+function debugLogPipedrivePayload(body) {
+    try {
+        const masked = JSON.stringify(body, null, 2);
+        console.log('[Pipedrive] Raw payload:', masked);
+    } catch (error) {
+        console.warn('[Pipedrive] Failed to stringify payload for debug:', error.message);
+    }
+}
+
+function debugLogUnexpectedBody(body) {
+    try {
+        const masked = JSON.stringify(body, null, 2);
+        console.log('[Debug] Unhandled body content:', masked);
+    } catch (error) {
+        console.warn('[Debug] Failed to stringify unhandled body:', error.message);
+    }
+}
+
+function inferDealAction(body) {
+    const metaAction = body?.meta?.action;
+    if (metaAction) {
+        return metaAction;
+    }
+
+    const event = (body?.event || body?.event_type || '').toString().toLowerCase();
+    if (event.includes('added') || event.includes('created')) {
+        return 'added';
+    }
+    if (event.includes('updated') || event.includes('changed')) {
+        return 'updated';
+    }
+
+    return null;
+}
+
+function extractDealPayload(body) {
+    if (!body || typeof body !== 'object') {
+        return { current: null, previous: null };
+    }
+
+    if (body.current || body.previous) {
+        return {
+            current: body.current || null,
+            previous: body.previous || null
+        };
+    }
+
+    if (body.data && typeof body.data === 'object') {
+        return {
+            current: body.data.current || body.data.deal || body.data,
+            previous: body.data.previous || null
+        };
+    }
+
+    if (body.deal) {
+        return {
+            current: body.deal,
+            previous: body.previous || null
+        };
+    }
+
+    return { current: null, previous: null };
+}
+
+async function notifyDealCreated(deal) {
+    if (!deal) {
+        return;
+    }
+
+    const title = deal.title || `Deal ${deal.id || '不明'}`;
+    const ownerMention = formatOwnerMention(deal.owner_id);
+    const textLines = [
+        ':sparkles: 新しいカードが追加されました！',
+        `企業名: ${title}`,
+        `担当: ${ownerMention}`
+    ];
+
+    await postSlackMessage(textLines.join('\n'));
+}
+
+async function notifyDealStageChanged(deal) {
+    if (!deal) {
+        return;
+    }
+
+    const stageNameFromPayload = (deal.stage_name || '').trim();
+    let stageName = stageNameFromPayload;
+
+    if (!stageName) {
+        const stage = await fetchStage(deal.stage_id);
+        stageName = stage?.name?.trim() || '';
+    }
+
+    if (!stageName) {
+        console.warn('[Pipedrive] Stage name is missing; skip notification.');
+        return;
+    }
+
+    if (stageName !== AGENT_READY_STAGE_NAME) {
+        console.log(`[Pipedrive] Stage "${stageName}" is not target "${AGENT_READY_STAGE_NAME}"; skip.`);
+        return;
+    }
+
+    const ownerMention = formatOwnerMention(deal.owner_id);
+    const title = deal.title || `Deal ${deal.id || '不明'}`;
+    const text = `${ownerMention ? `${ownerMention} ` : ''}案件「${title}」がステージ「${stageName}」へ移動しました。`;
+
+    await postSlackMessage(text);
+}
+
+async function postSlackMessage(text, options = {}) {
+    requireEnv('SLACK_BOT_TOKEN', SLACK_BOT_TOKEN);
+    const channel = options.channel || requireEnv('SLACK_NOTIFY_CHANNEL', process.env.SLACK_NOTIFY_CHANNEL);
+
+    const slackRes = await axios.post('https://slack.com/api/chat.postMessage', {
+        channel,
+        text
+    }, {
+        headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` }
+    });
+
+    logSlackResponse('chat.postMessage', slackRes.data);
+}
+
+function formatOwnerMention(ownerId) {
+    if (typeof ownerId === 'undefined' || ownerId === null) {
+        return '担当者未設定';
+    }
+
+    const slackId = getOwnerSlackId(ownerId);
+    if (slackId) {
+        return `<@${slackId}>`;
+    }
+
+    return `owner_id ${ownerId}`;
+}
+
+function getOwnerSlackId(ownerId) {
+    const map = loadOwnerSlackMap();
+    return map[String(ownerId)] || null;
+}
+
+function loadOwnerSlackMap() {
+    if (ownerSlackMapCache !== null) {
+        return ownerSlackMapCache;
+    }
+
+    try {
+        const raw = fs.readFileSync(OWNER_SLACK_MAP_PATH, 'utf-8');
+        const ext = path.extname(OWNER_SLACK_MAP_PATH).toLowerCase();
+
+        if (ext === '.yaml' || ext === '.yml') {
+            ownerSlackMapCache = YAML.parse(raw) || {};
+        } else {
+            ownerSlackMapCache = JSON.parse(raw);
+        }
+    } catch (error) {
+        console.warn(`[Pipedrive] Failed to load owner_slack_map: ${error.message}`);
+        ownerSlackMapCache = {};
+    }
+
+    return ownerSlackMapCache;
 }

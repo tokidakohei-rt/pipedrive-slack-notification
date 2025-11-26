@@ -1,6 +1,14 @@
 process.env.SLACK_BOT_TOKEN = 'test-slack-token';
 process.env.PIPEDRIVE_API_TOKEN = 'test-pipedrive-token';
 process.env.SLACK_NOTIFY_CHANNEL = 'C-test-channel';
+process.env.AGENT_READY_STAGE_NAME = 'agent調整完了';
+process.env.OWNER_SLACK_MAP_PATH = require('path').resolve(__dirname, 'tmp_owner_slack_map.yaml');
+
+const fs = require('fs');
+fs.writeFileSync(process.env.OWNER_SLACK_MAP_PATH, [
+    '# テスト用のオーナーID→Slack ID',
+    '321: U999999'
+].join('\n'));
 
 const handler = require('../api/deal-ui');
 const axios = require('axios');
@@ -94,6 +102,35 @@ async function runTests() {
                     }
                 }
             })
+        }
+    }, mockRes);
+
+    console.log('\n--- Test 4: Pipedrive Deal Created Webhook ---');
+    await handler({
+        body: {
+            meta: { object: 'deal', action: 'added' },
+            current: {
+                id: 555,
+                title: 'New Company',
+                owner_id: 321
+            }
+        }
+    }, mockRes);
+
+    console.log('\n--- Test 5: Pipedrive Stage Change Webhook ---');
+    await handler({
+        body: {
+            meta: { object: 'deal', action: 'updated' },
+            current: {
+                id: 556,
+                title: 'Agent Ready Corp',
+                owner_id: 321,
+                stage_id: 2,
+                stage_name: 'agent調整完了'
+            },
+            previous: {
+                stage_id: 1
+            }
         }
     }, mockRes);
 }
