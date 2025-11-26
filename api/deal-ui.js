@@ -554,28 +554,21 @@ function extractDealPayload(body) {
         return { current: null, previous: null };
     }
 
-    if (body.current || body.previous) {
-        return {
-            current: body.current || null,
-            previous: body.previous || null
-        };
+    let current = body.current || null;
+    let previous = body.previous || null;
+
+    if (!current && body.data && typeof body.data === 'object') {
+        current = body.data.current || body.data.deal || body.data;
+        if (!previous && body.data.previous) {
+            previous = body.data.previous;
+        }
     }
 
-    if (body.data && typeof body.data === 'object') {
-        return {
-            current: body.data.current || body.data.deal || body.data,
-            previous: body.data.previous || null
-        };
+    if (!current && body.deal) {
+        current = body.deal;
     }
 
-    if (body.deal) {
-        return {
-            current: body.deal,
-            previous: body.previous || null
-        };
-    }
-
-    return { current: null, previous: null };
+    return { current, previous };
 }
 
 async function notifyDealCreated(deal) {
