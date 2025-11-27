@@ -19,6 +19,11 @@ const AGENT_FIXED_MENTIONS = (process.env.AGENT_FIXED_MENTIONS || 'U07PC1CSXH8,U
 const HANDOVER_DATE_FIELD_KEY = process.env.HANDOVER_DATE_FIELD_KEY || 'b459bec642f11294904272a4fe6273d3591b9566';
 const COUPON_SPREADSHEET_URL = process.env.COUPON_SPREADSHEET_URL
     || 'https://docs.google.com/spreadsheets/d/1kNxs6ibI6dDCwEGZv86EFNN5IZdfJNZn3QO9H-RK3Hs/edit?gid=387773158#gid=387773158';
+const EARLY_NOTIFY_STAGE_NAMES = (process.env.EARLY_NOTIFY_STAGE_NAMES || '商談セット,Chat導入検討')
+    .split(',')
+    .map(stage => stage.trim())
+    .filter(Boolean);
+const CHAT_APPROVAL_STAGE_NAME = (process.env.CHAT_APPROVAL_STAGE_NAME || 'Chat導入内諾').trim();
 
 let ownerSlackMapCache = null;
 
@@ -660,15 +665,18 @@ async function notifyDealCreated(deal) {
     const stageLine = stageName ? `現在のステージ：${stageName}` : '現在のステージ：不明';
     const handoverDateLine = formatHandoverDate(deal);
     const fixedMentions = formatAgentFixedMentions();
+    const footerLine = buildCreationFooter(stageName, fixedMentions);
     const textLines = [
         ':sparkles: 新しいカードが追加されました！',
         `企業名: ${title}`,
         stageLine,
         handoverDateLine,
-        `担当: ${ownerMention}`,
-        '',
-        fixedMentions ? `${fixedMentions} はagentの準備を始めてください！` : 'agentの準備を始めてください！'
+        `担当: ${ownerMention}`
     ];
+
+    if (footerLine) {
+        textLines.push('', footerLine);
+    }
 
     const slackResponse = await postSlackMessage(textLines.join('\n'));
     if (slackResponse?.ts) {
@@ -688,28 +696,39 @@ async function notifyDealStageChanged(deal) {
         return;
     }
 
-    if (stageName !== AGENT_READY_STAGE_NAME) {
-        console.log(`[Pipedrive] Stage "${stageName}" is not target "${AGENT_READY_STAGE_NAME}"; skip.`);
+    if (stageName === AGENT_READY_STAGE_NAME) {
+        const ownerMention = formatOwnerMention(deal.owner_id);
+        const title = deal.title || `Deal ${deal.id || '不明'}`;
+        const couponLine = COUPON_SPREADSHEET_URL
+            ? `以下のスプレッドシートからクーポンコードを取得して、先方にご連絡お願いします！\n${COUPON_SPREADSHEET_URL}`
+            : 'クーポンコードを取得して、先方にご連絡お願いします！';
+        const textLines = [
+            `${ownerMention ? `${ownerMention} ` : ''}${title}さんのagentが制度改善まで完了し、指定のメールアドレスに招待URLが送信されました！👏`,
+            '',
+            couponLine
+        ];
+
+        await postStageChangeMessage(deal, textLines);
         return;
     }
 
-    const ownerMention = formatOwnerMention(deal.owner_id);
-    const title = deal.title || `Deal ${deal.id || '不明'}`;
-    const couponLine = COUPON_SPREADSHEET_URL
-        ? `以下のスプレッドシートからクーポンコードを取得して、先方にご連絡お願いします！\n${COUPON_SPREADSHEET_URL}`
-        : 'クーポンコードを取得して、先方にご連絡お願いします！';
-    const textLines = [
-        `${ownerMention ? `${ownerMention} ` : ''}${title}さんのagentが制度改善まで完了し、指定のメールアドレスに招待URLが送信されました！👏`,
-        '',
-        couponLine
-    ];
+    if (stageName === CHAT_APPROVAL_STAGE_NAME) {
+        const title = deal.title || `Deal ${deal.id || '不明'}`;
+        const fixedMentions = formatAgentFixedMentions();
+        const mentionLine = fixedMentions
+            ? `${fixedMentions} はagentの準備を始めてください！`
+            : 'agentの準備を始めてください！';
+        const textLines = [
+            `${title}さんがChatの導入を内諾しました！🎉`,
+            '',
+            mentionLine
+        ];
 
-    const threadTs = await getThreadTsForDeal(deal);
-    const slackResponse = await postSlackMessage(textLines.join('\n'), { threadTs });
-
-    if (!threadTs && slackResponse?.ts) {
-        await saveDealThreadTs(deal.id, slackResponse.ts);
+        await postStageChangeMessage(deal, textLines);
+        return;
     }
+
+    console.log(`[Pipedrive] Stage "${stageName}" does not require notification; skip.`);
 }
 
 async function postSlackMessage(text, options = {}) {
@@ -820,4 +839,25 @@ function extractCustomFieldValue(deal, fieldKey) {
     return normalizeFieldValue(directValue)
         || normalizeFieldValue(customValue)
         || normalizeFieldValue(nestedValue);
+}
+
+function buildCreationFooter(stageName, fixedMentions) {
+    if (stageName && EARLY_NOTIFY_STAGE_NAMES.includes(stageName)) {
+        return fixedMentions ? `cc: ${fixedMentions}` : '';
+    }
+
+    if (fixedMentions) {
+        return `${fixedMentions} はagentの準備を始めてください！`;
+    }
+
+    return 'agentの準備を始めてください！';
+}
+
+async function postStageChangeMessage(deal, textLines) {
+    const threadTs = await getThreadTsForDeal(deal);
+    const slackResponse = await postSlackMessage(textLines.join('\n'), { threadTs });
+
+    if (!threadTs && slackResponse?.ts) {
+        await saveDealThreadTs(deal.id, slackResponse.ts);
+    }
 }

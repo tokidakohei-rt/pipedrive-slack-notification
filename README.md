@@ -76,6 +76,8 @@ Slackのスレッドに後続通知をまとめたい場合は、PipedriveのDea
 | `AGENT_FIXED_MENTIONS` | カード作成時に固定でメンションするSlack ID（カンマ区切り） | 省略時は `U07PC1CSXH8,U03HP6CM1FB` |
 | `HANDOVER_DATE_FIELD_KEY` | 引き渡し希望日フィールドのキー | 省略時はデフォルトキー `b459...9566` |
 | `COUPON_SPREADSHEET_URL` | クーポン共有スプレッドシートのURL | 省略時は社内デフォルトURL |
+| `EARLY_NOTIFY_STAGE_NAMES` | カード追加時に固定メンションをcc扱いにするステージ名（カンマ区切り） | 省略時は `商談セット,Chat導入検討` |
+| `CHAT_APPROVAL_STAGE_NAME` | 「Chat導入内諾」通知を送るステージ名 | 省略時は `Chat導入内諾` |
 
 ### 6. 動作確認
 
