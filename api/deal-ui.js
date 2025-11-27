@@ -16,6 +16,7 @@ const AGENT_FIXED_MENTIONS = (process.env.AGENT_FIXED_MENTIONS || 'U07PC1CSXH8,U
     .split(',')
     .map(id => id.trim())
     .filter(Boolean);
+const HANDOVER_DATE_FIELD_KEY = process.env.HANDOVER_DATE_FIELD_KEY || 'b459bec642f11294904272a4fe6273d3591b9566';
 
 let ownerSlackMapCache = null;
 
@@ -655,11 +656,13 @@ async function notifyDealCreated(deal) {
     const ownerMention = formatOwnerMention(deal.owner_id);
     const stageName = await resolveStageName(deal);
     const stageLine = stageName ? `現在のステージ：${stageName}` : '現在のステージ：不明';
+    const handoverDateLine = formatHandoverDate(deal);
     const fixedMentions = formatAgentFixedMentions();
     const textLines = [
         ':sparkles: 新しいカードが追加されました！',
         `企業名: ${title}`,
         stageLine,
+        handoverDateLine,
         `担当: ${ownerMention}`,
         '',
         fixedMentions ? `${fixedMentions} はagentの準備を始めてください！` : 'agentの準備を始めてください！'
@@ -781,4 +784,31 @@ function formatAgentFixedMentions() {
     }
 
     return AGENT_FIXED_MENTIONS.map(id => `<@${id}>`).join(' ');
+}
+
+function formatHandoverDate(deal) {
+    if (!HANDOVER_DATE_FIELD_KEY || !deal) {
+        return '引き渡し希望日：未設定';
+    }
+
+    const value = extractCustomFieldValue(deal, HANDOVER_DATE_FIELD_KEY);
+    if (!value) {
+        return '引き渡し希望日：未設定';
+    }
+
+    return `引き渡し希望日：${value}`;
+}
+
+function extractCustomFieldValue(deal, fieldKey) {
+    if (!deal || !fieldKey) {
+        return null;
+    }
+
+    const directValue = deal[fieldKey];
+    const customValue = deal.custom_fields?.[fieldKey];
+    const nestedValue = customValue?.value;
+
+    return normalizeFieldValue(directValue)
+        || normalizeFieldValue(customValue)
+        || normalizeFieldValue(nestedValue);
 }
