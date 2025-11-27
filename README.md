@@ -73,6 +73,7 @@ Slackのスレッドに後続通知をまとめたい場合は、PipedriveのDea
 | `AGENT_READY_STAGE_NAME` | 「agent調整完了」に相当するステージ名 | 省略時は `agent調整完了` |
 | `OWNER_SLACK_MAP_PATH` | 対応表ファイルのパス | 省略時は `config/owner_slack_map.yaml` |
 | `SLACK_THREAD_TS_FIELD_KEY` | DealにSlack thread tsを保存するフィールドキー | 省略時はスレッド追跡を無効化 |
+| `AGENT_FIXED_MENTIONS` | カード作成時に固定でメンションするSlack ID（カンマ区切り） | 省略時は `U07PC1CSXH8,U03HP6CM1FB` |
 
 ### 6. 動作確認
 

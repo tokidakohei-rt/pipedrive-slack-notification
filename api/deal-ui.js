@@ -12,6 +12,10 @@ const AGENT_READY_STAGE_NAME = (process.env.AGENT_READY_STAGE_NAME || 'agent調�
 const SLACK_THREAD_TS_FIELD_KEY = process.env.SLACK_THREAD_TS_FIELD_KEY;
 const OWNER_SLACK_MAP_PATH = (process.env.OWNER_SLACK_MAP_PATH && path.resolve(process.env.OWNER_SLACK_MAP_PATH))
     || path.resolve(__dirname, '..', 'config', 'owner_slack_map.yaml');
+const AGENT_FIXED_MENTIONS = (process.env.AGENT_FIXED_MENTIONS || 'U07PC1CSXH8,U03HP6CM1FB')
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean);
 
 let ownerSlackMapCache = null;
 
@@ -649,10 +653,16 @@ async function notifyDealCreated(deal) {
 
     const title = deal.title || `Deal ${deal.id || '不明'}`;
     const ownerMention = formatOwnerMention(deal.owner_id);
+    const stageName = await resolveStageName(deal);
+    const stageLine = stageName ? `現在のステージ：${stageName}` : '現在のステージ：不明';
+    const fixedMentions = formatAgentFixedMentions();
     const textLines = [
         ':sparkles: 新しいカードが追加されました！',
         `企業名: ${title}`,
-        `担当: ${ownerMention}`
+        stageLine,
+        `担当: ${ownerMention}`,
+        '',
+        fixedMentions ? `${fixedMentions} はagentの準備を始めてください！` : 'agentの準備を始めてください！'
     ];
 
     const slackResponse = await postSlackMessage(textLines.join('\n'));
@@ -666,13 +676,7 @@ async function notifyDealStageChanged(deal) {
         return;
     }
 
-    const stageNameFromPayload = (deal.stage_name || '').trim();
-    let stageName = stageNameFromPayload;
-
-    if (!stageName) {
-        const stage = await fetchStage(deal.stage_id);
-        stageName = stage?.name?.trim() || '';
-    }
+    const stageName = await resolveStageName(deal);
 
     if (!stageName) {
         console.warn('[Pipedrive] Stage name is missing; skip notification.');
@@ -751,4 +755,30 @@ function loadOwnerSlackMap() {
     }
 
     return ownerSlackMapCache;
+}
+
+async function resolveStageName(deal) {
+    if (!deal) {
+        return '';
+    }
+
+    const stageNameFromPayload = (deal.stage_name || '').trim();
+    if (stageNameFromPayload) {
+        return stageNameFromPayload;
+    }
+
+    if (!deal.stage_id) {
+        return '';
+    }
+
+    const stage = await fetchStage(deal.stage_id);
+    return stage?.name?.trim() || '';
+}
+
+function formatAgentFixedMentions() {
+    if (!AGENT_FIXED_MENTIONS.length) {
+        return '';
+    }
+
+    return AGENT_FIXED_MENTIONS.map(id => `<@${id}>`).join(' ');
 }
