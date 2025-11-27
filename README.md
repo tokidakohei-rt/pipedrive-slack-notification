@@ -75,6 +75,7 @@ Slackのスレッドに後続通知をまとめたい場合は、PipedriveのDea
 | `SLACK_THREAD_TS_FIELD_KEY` | DealにSlack thread tsを保存するフィールドキー | 省略時はスレッド追跡を無効化 |
 | `AGENT_FIXED_MENTIONS` | カード作成時に固定でメンションするSlack ID（カンマ区切り） | 省略時は `U07PC1CSXH8,U03HP6CM1FB` |
 | `HANDOVER_DATE_FIELD_KEY` | 引き渡し希望日フィールドのキー | 省略時はデフォルトキー `b459...9566` |
+| `COUPON_SPREADSHEET_URL` | クーポン共有スプレッドシートのURL | 省略時は社内デフォルトURL |
 
 ### 6. 動作確認
 

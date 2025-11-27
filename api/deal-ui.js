@@ -17,6 +17,8 @@ const AGENT_FIXED_MENTIONS = (process.env.AGENT_FIXED_MENTIONS || 'U07PC1CSXH8,U
     .map(id => id.trim())
     .filter(Boolean);
 const HANDOVER_DATE_FIELD_KEY = process.env.HANDOVER_DATE_FIELD_KEY || 'b459bec642f11294904272a4fe6273d3591b9566';
+const COUPON_SPREADSHEET_URL = process.env.COUPON_SPREADSHEET_URL
+    || 'https://docs.google.com/spreadsheets/d/1kNxs6ibI6dDCwEGZv86EFNN5IZdfJNZn3QO9H-RK3Hs/edit?gid=387773158#gid=387773158';
 
 let ownerSlackMapCache = null;
 
@@ -693,10 +695,17 @@ async function notifyDealStageChanged(deal) {
 
     const ownerMention = formatOwnerMention(deal.owner_id);
     const title = deal.title || `Deal ${deal.id || '不明'}`;
-    const text = `${ownerMention ? `${ownerMention} ` : ''}案件「${title}」がステージ「${stageName}」へ移動しました。`;
+    const couponLine = COUPON_SPREADSHEET_URL
+        ? `以下のスプレッドシートからクーポンコードを取得して、先方にご連絡お願いします！\n${COUPON_SPREADSHEET_URL}`
+        : 'クーポンコードを取得して、先方にご連絡お願いします！';
+    const textLines = [
+        `${ownerMention ? `${ownerMention} ` : ''}${title}さんのagentが制度改善まで完了し、指定のメールアドレスに招待URLが送信されました！👏`,
+        '',
+        couponLine
+    ];
 
     const threadTs = await getThreadTsForDeal(deal);
-    const slackResponse = await postSlackMessage(text, { threadTs });
+    const slackResponse = await postSlackMessage(textLines.join('\n'), { threadTs });
 
     if (!threadTs && slackResponse?.ts) {
         await saveDealThreadTs(deal.id, slackResponse.ts);
