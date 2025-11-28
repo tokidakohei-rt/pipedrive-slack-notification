@@ -7,7 +7,7 @@ const YAML = require('yaml');
 // Environment variables
 const PIPEDRIVE_API_TOKEN = process.env.PIPEDRIVE_API_TOKEN;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-const PIPELINE_ID = 32;
+const PIPELINE_ID = Number(process.env.PIPELINE_ID || 32);
 const AGENT_READY_STAGE_NAME = (process.env.AGENT_READY_STAGE_NAME || 'agent調整完了').trim();
 const SLACK_THREAD_TS_FIELD_KEY = process.env.SLACK_THREAD_TS_FIELD_KEY;
 const OWNER_SLACK_MAP_PATH = (process.env.OWNER_SLACK_MAP_PATH && path.resolve(process.env.OWNER_SLACK_MAP_PATH))
@@ -476,6 +476,11 @@ async function handlePipedriveWebhook(body) {
         return;
     }
 
+    if (!isTargetPipelineDeal(event.deal)) {
+        console.log(`[Pipedrive] Deal ${event.deal?.id ?? 'unknown'} is not in pipeline ${PIPELINE_ID}. Skip notification.`);
+        return;
+    }
+
     console.log(`[Pipedrive] Event detected: ${event.type}`);
     if (event.type === 'deal_created') {
         await notifyDealCreated(event.deal);
@@ -575,6 +580,25 @@ function extractDealPayload(body) {
     }
 
     return { current, previous };
+}
+
+function isTargetPipelineDeal(deal) {
+    if (!deal) {
+        return false;
+    }
+
+    const pipelineId = Number(
+        typeof deal.pipeline_id !== 'undefined'
+            ? deal.pipeline_id
+            : deal.pipeline?.id
+    );
+
+    if (Number.isNaN(pipelineId)) {
+        console.warn('[Pipedrive] pipeline_id is missing. Skip notification.');
+        return false;
+    }
+
+    return pipelineId === PIPELINE_ID;
 }
 
 async function getThreadTsForDeal(deal) {
