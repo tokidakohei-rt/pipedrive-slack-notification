@@ -303,7 +303,6 @@ async function handleViewSubmission(payload) {
     const values = payload.view.state.values;
     const dealId = values.deal_block.deal_select.selected_option.value;
     const targetStageId = values.target_stage_block.target_stage_select.selected_option.value;
-    const userId = payload.user.id;
 
     if (dealId === 'none') {
         return; // Do nothing or show error (requires returning response_action: errors)
@@ -311,12 +310,6 @@ async function handleViewSubmission(payload) {
 
     // Update Pipedrive
     await updateDealStage(dealId, targetStageId);
-    const deal = await fetchDeal(dealId);
-    const stage = await fetchStage(targetStageId);
-
-    // Notify User (optional, or just close modal)
-    // To send a message, we need chat.postMessage
-    await postSlackMessage(`<@${userId}> が "${deal?.title || `Deal ${dealId}`}" をステージ "${stage?.name || `Stage ${targetStageId}`}" に移動しました。`);
 }
 
 // --- Pipedrive Helpers ---
@@ -728,7 +721,13 @@ async function notifyDealStageChanged(deal) {
         return;
     }
 
-    console.log(`[Pipedrive] Stage "${stageName}" does not require notification; skip.`);
+    const ownerMention = formatOwnerMention(deal.owner_id);
+    const title = deal.title || `Deal ${deal.id || '不明'}`;
+    const textLines = [
+        `${ownerMention ? `${ownerMention} ` : ''}案件「${title}」がステージ「${stageName}」へ移動しました。`
+    ];
+
+    await postStageChangeMessage(deal, textLines);
 }
 
 async function postSlackMessage(text, options = {}) {
