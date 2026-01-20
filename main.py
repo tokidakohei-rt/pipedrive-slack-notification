@@ -276,7 +276,7 @@ def generate_pipeline_summary(stage_companies: Dict[str, List[str]]) -> str:
         生成されたサマリテキスト
     """
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash-lite')
     
     # パイプラインデータを整形
     pipeline_data_text = []
