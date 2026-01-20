@@ -1,0 +1,59 @@
+/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Traceback (most recent call last):
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/util/ssl_.py", line 458, in ssl_wrap_socket
+    context.load_verify_locations(ca_certs, ca_cert_dir, ca_cert_data)
+PermissionError: [Errno 1] Operation not permitted
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+    raise new_e
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+    self._validate_conn(conn)
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+    conn.connect()
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connection.py", line 790, in connect
+    sock_and_verified = _ssl_wrap_socket_and_match_hostname(
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connection.py", line 969, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/util/ssl_.py", line 460, in ssl_wrap_socket
+    raise SSLError(e) from e
+urllib3.exceptions.SSLError: [Errno 1] Operation not permitted
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/requests/adapters.py", line 644, in send
+    resp = conn.urlopen(
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/urllib3/util/retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.pipedrive.com', port=443): Max retries exceeded with url: /v1/pipelines/32?api_token=f4d41621b918c60add2d88d76aa05a685c7343a2 (Caused by SSLError(PermissionError(1, 'Operation not permitted')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/tokidakohei/pipedrive-slack-notification/scripts/post_agent_ready_once.py", line 147, in <module>
+    main()
+  File "/Users/tokidakohei/pipedrive-slack-notification/scripts/post_agent_ready_once.py", line 125, in main
+    stage_id = find_stage_id(stage_name, pipeline_id, token)
+  File "/Users/tokidakohei/pipedrive-slack-notification/scripts/post_agent_ready_once.py", line 65, in find_stage_id
+    stages = fetch_stages(pipeline_id, token)
+  File "/Users/tokidakohei/pipedrive-slack-notification/scripts/post_agent_ready_once.py", line 55, in fetch_stages
+    resp = requests.get(url, params=params, timeout=30)
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/tokidakohei/Library/Python/3.9/lib/python/site-packages/requests/adapters.py", line 675, in send
+    raise SSLError(e, request=request)
+requests.exceptions.SSLError: HTTPSConnectionPool(host='api.pipedrive.com', port=443): Max retries exceeded with url: /v1/pipelines/32?api_token=f4d41621b918c60add2d88d76aa05a685c7343a2 (Caused by SSLError(PermissionError(1, 'Operation not permitted')))
