@@ -28,7 +28,11 @@ jobs:
         env:
           PIPEDRIVE_API_TOKEN: ${{ secrets.PIPEDRIVE_API_TOKEN }}
           PIPELINE_ID: ${{ secrets.PIPELINE_ID }}
+          # 新モード: Slack Bot API + LLMサマリ
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # レガシーモード（後方互換性）: 上記が未設定の場合に使用
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           python main.py
-

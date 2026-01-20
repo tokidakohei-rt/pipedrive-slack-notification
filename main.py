@@ -3,14 +3,17 @@
 Pipedrive パイプライン自動レポート Slack 通知スクリプト
 
 指定されたパイプラインの全ステージの案件（企業）一覧を取得し、
-ステージごとにまとめてSlackに投稿する。
+LLMでサマリを生成して、Slackに投稿する。
+- 親メッセージ: LLMによるパイプラインサマリ
+- スレッド: ステージごとの詳細リスト
 """
 
 import os
 import sys
 import logging
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional, Any
 import requests
+import google.generativeai as genai
 
 # ログ設定
 logging.basicConfig(
@@ -22,6 +25,11 @@ logger = logging.getLogger(__name__)
 # 環境変数から設定を取得
 PIPEDRIVE_API_TOKEN = os.getenv('PIPEDRIVE_API_TOKEN')
 PIPELINE_ID = os.getenv('PIPELINE_ID')
+SLACK_BOT_TOKEN = os.getenv('SLACK_BOT_TOKEN')
+SLACK_CHANNEL = os.getenv('SLACK_CHANNEL')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+# 後方互換性: SLACK_WEBHOOK_URLが設定されている場合はレガシーモード
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 
 # Pipedrive API設定
@@ -36,9 +44,21 @@ def validate_env_vars():
     if not PIPELINE_ID:
         logger.error('PIPELINE_ID が設定されていません')
         sys.exit(1)
-    if not SLACK_WEBHOOK_URL:
-        logger.error('SLACK_WEBHOOK_URL が設定されていません')
-        sys.exit(1)
+    
+    # 新モード: Slack Bot API + LLM
+    if SLACK_BOT_TOKEN and GEMINI_API_KEY:
+        if not SLACK_CHANNEL:
+            logger.error('SLACK_CHANNEL が設定されていません')
+            sys.exit(1)
+        return 'enhanced'
+    
+    # レガシーモード: Webhook
+    if SLACK_WEBHOOK_URL:
+        logger.info('レガシーモード: SLACK_WEBHOOK_URL を使用します（LLMサマリなし）')
+        return 'legacy'
+    
+    logger.error('SLACK_BOT_TOKEN + SLACK_CHANNEL + GEMINI_API_KEY、または SLACK_WEBHOOK_URL が必要です')
+    sys.exit(1)
 
 
 def get_pipeline_stages(pipeline_id: str) -> List[Dict]:
@@ -207,7 +227,7 @@ def get_deals_by_stage(pipeline_id: str, stage_id: str) -> List[Dict]:
         return []
 
 
-def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, Set[str]]:
+def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, List[str]]:
     """
     ステージごとに企業名をグルーピング
     
@@ -216,9 +236,9 @@ def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, 
         stages: ステージ情報のリスト
         
     Returns:
-        ステージ名をキー、企業名のセットを値とする辞書
+        ステージ名をキー、企業名のリスト（ソート済み）を値とする辞書
     """
-    stage_companies: Dict[str, Set[str]] = {}
+    stage_companies: Dict[str, List[str]] = {}
     
     logger.info(f'ステージごとのDeal取得を開始: {len(stages)} ステージ')
     
@@ -237,7 +257,7 @@ def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, 
             else:
                 logger.debug(f'Deal id={deal.get("id")} のtitleが空です')
         
-        stage_companies[stage_name] = companies
+        stage_companies[stage_name] = sorted(companies)
         logger.info(f'ステージ "{stage_name}": {len(companies)} 社')
         if companies:
             logger.debug(f'  企業名: {sorted(companies)}')
@@ -245,12 +265,168 @@ def group_companies_by_stage(pipeline_id: str, stages: List[Dict]) -> Dict[str, 
     return stage_companies
 
 
-def format_slack_message(stage_companies: Dict[str, Set[str]]) -> str:
+def generate_pipeline_summary(stage_companies: Dict[str, List[str]]) -> str:
     """
-    Slackメッセージをフォーマット
+    LLM（Gemini）を使ってパイプラインのサマリを生成
     
     Args:
-        stage_companies: ステージ名をキー、企業名のセットを値とする辞書
+        stage_companies: ステージ名をキー、企業名のリストを値とする辞書
+        
+    Returns:
+        生成されたサマリテキスト
+    """
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-2.0-flash')
+    
+    # パイプラインデータを整形
+    pipeline_data_text = []
+    total_companies = 0
+    
+    for stage_name, companies in stage_companies.items():
+        count = len(companies)
+        total_companies += count
+        pipeline_data_text.append(f"- {stage_name}: {count}社")
+        if companies:
+            pipeline_data_text.append(f"  企業: {', '.join(companies)}")
+    
+    pipeline_info = "\n".join(pipeline_data_text)
+    
+    prompt = f"""以下は営業パイプラインの現在の状況です。このデータを分析し、営業チーム向けの簡潔なサマリを日本語で作成してください。
+
+## パイプライン状況
+総企業数: {total_companies}社
+
+{pipeline_info}
+
+## サマリの要件
+- 全体の健全性や傾向を1-2文でコメント
+- 注目すべきポイントがあれば指摘（ボトルネックになりそうなステージ、進捗が順調なステージなど）
+- 今日のアクションとして意識すべきことがあれば一言
+- 絵文字を適度に使って親しみやすく
+- 200文字以内に収める
+
+サマリを出力してください（サマリ本文のみ、前置きや説明は不要）:"""
+
+    logger.info('Gemini APIでサマリを生成中...')
+    
+    response = model.generate_content(prompt)
+    
+    summary = response.text.strip()
+    logger.info(f'サマリ生成完了: {len(summary)} 文字')
+    
+    return summary
+
+
+def format_stage_detail(stage_name: str, companies: List[str]) -> str:
+    """
+    ステージの詳細メッセージをフォーマット
+    
+    Args:
+        stage_name: ステージ名
+        companies: 企業名のリスト
+        
+    Returns:
+        フォーマット済みメッセージ
+    """
+    if companies:
+        companies_text = ' / '.join(companies)
+        return f"*【{stage_name}】* ({len(companies)}社)\n{companies_text}"
+    else:
+        return f"*【{stage_name}】* (0社)\n該当なし"
+
+
+def send_to_slack_with_thread(summary: str, stage_companies: Dict[str, List[str]]) -> bool:
+    """
+    Slack Bot APIでサマリを送信し、スレッドに詳細を投稿
+    
+    Args:
+        summary: LLM生成のサマリ
+        stage_companies: ステージ別の企業リスト
+        
+    Returns:
+        送信成功時True
+    """
+    headers = {
+        'Authorization': f'Bearer {SLACK_BOT_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    # 総企業数を計算
+    total_companies = sum(len(companies) for companies in stage_companies.values())
+    
+    # 親メッセージ: サマリ
+    parent_message = f"📊 *本日のNEWT Chat パイプライン状況* ({total_companies}社)\n\n{summary}"
+    
+    payload = {
+        'channel': SLACK_CHANNEL,
+        'text': parent_message,
+        'unfurl_links': False,
+        'unfurl_media': False
+    }
+    
+    try:
+        # 親メッセージを送信
+        logger.info('サマリメッセージを送信中...')
+        response = requests.post(
+            'https://slack.com/api/chat.postMessage',
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data.get('ok'):
+            logger.error(f'Slack API エラー: {data.get("error")}')
+            return False
+        
+        thread_ts = data.get('ts')
+        logger.info(f'サマリメッセージ送信完了: ts={thread_ts}')
+        
+        # スレッドに詳細を投稿
+        logger.info('スレッドに詳細を投稿中...')
+        for stage_name, companies in stage_companies.items():
+            detail_message = format_stage_detail(stage_name, companies)
+            
+            thread_payload = {
+                'channel': SLACK_CHANNEL,
+                'text': detail_message,
+                'thread_ts': thread_ts,
+                'unfurl_links': False,
+                'unfurl_media': False
+            }
+            
+            thread_response = requests.post(
+                'https://slack.com/api/chat.postMessage',
+                headers=headers,
+                json=thread_payload,
+                timeout=30
+            )
+            thread_response.raise_for_status()
+            thread_data = thread_response.json()
+            
+            if not thread_data.get('ok'):
+                logger.warning(f'スレッド投稿エラー ({stage_name}): {thread_data.get("error")}')
+            else:
+                logger.info(f'  ステージ "{stage_name}" の詳細を投稿')
+        
+        logger.info('Slackへの投稿が完了しました')
+        return True
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f'Slackへの投稿に失敗: {e}')
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f'レスポンスステータス: {e.response.status_code}')
+            logger.error(f'レスポンスボディ: {e.response.text}')
+        return False
+
+
+def format_slack_message_legacy(stage_companies: Dict[str, List[str]]) -> str:
+    """
+    レガシーモード用: Slackメッセージをフォーマット
+    
+    Args:
+        stage_companies: ステージ名をキー、企業名のリストを値とする辞書
         
     Returns:
         フォーマット済みメッセージ
@@ -262,8 +438,7 @@ def format_slack_message(stage_companies: Dict[str, Set[str]]) -> str:
         
         if companies:
             # 企業名をソートして表示
-            sorted_companies = sorted(companies)
-            companies_line = ' / '.join(sorted_companies)
+            companies_line = ' / '.join(companies)
             message_parts.append(f'・{companies_line}')
         else:
             message_parts.append('・該当なし')
@@ -273,9 +448,9 @@ def format_slack_message(stage_companies: Dict[str, Set[str]]) -> str:
     return '\n'.join(message_parts)
 
 
-def send_to_slack(message: str) -> bool:
+def send_to_slack_legacy(message: str) -> bool:
     """
-    Slack Incoming Webhookにメッセージを送信
+    レガシーモード: Slack Incoming Webhookにメッセージを送信
     
     Args:
         message: 送信するメッセージ
@@ -319,7 +494,8 @@ def main():
     logger.info('Pipedrive パイプライン自動レポート処理を開始')
     
     # 環境変数の検証
-    validate_env_vars()
+    mode = validate_env_vars()
+    logger.info(f'動作モード: {mode}')
     
     # パイプラインのステージ一覧を取得
     stages = get_pipeline_stages(PIPELINE_ID)
@@ -329,27 +505,39 @@ def main():
         logger.error('1. PIPELINE_IDが正しいか確認')
         logger.error('2. パイプラインにステージが設定されているか確認')
         logger.error('3. APIトークンにパイプラインへのアクセス権限があるか確認')
-        # ステージがない場合でもSlackに通知する（空のメッセージ）
-        message = '本日のNEWT Chat パイプライン状況\n\nステージが見つかりませんでした。パイプラインIDとアクセス権限を確認してください。'
-        send_to_slack(message)
         sys.exit(1)
     
     # ステージごとに企業名をグルーピング
     stage_companies = group_companies_by_stage(PIPELINE_ID, stages)
     
-    # Slackメッセージをフォーマット
-    message = format_slack_message(stage_companies)
-    logger.info(f'フォーマット済みメッセージ: {len(message)} 文字')
-    
-    # Slackに投稿
-    if send_to_slack(message):
-        logger.info('処理が正常に完了しました')
-        sys.exit(0)
+    if mode == 'enhanced':
+        # 新モード: LLMサマリ + スレッド返信
+        try:
+            summary = generate_pipeline_summary(stage_companies)
+        except Exception as e:
+            logger.error(f'サマリ生成に失敗: {e}')
+            # フォールバック: シンプルなサマリ
+            total = sum(len(c) for c in stage_companies.values())
+            summary = f"本日のパイプラインには合計 {total} 社の案件があります。詳細はスレッドをご確認ください。"
+        
+        if send_to_slack_with_thread(summary, stage_companies):
+            logger.info('処理が正常に完了しました')
+            sys.exit(0)
+        else:
+            logger.error('Slackへの投稿に失敗しました')
+            sys.exit(1)
     else:
-        logger.error('Slackへの投稿に失敗しました')
-        sys.exit(1)
+        # レガシーモード: Webhook
+        message = format_slack_message_legacy(stage_companies)
+        logger.info(f'フォーマット済みメッセージ: {len(message)} 文字')
+        
+        if send_to_slack_legacy(message):
+            logger.info('処理が正常に完了しました')
+            sys.exit(0)
+        else:
+            logger.error('Slackへの投稿に失敗しました')
+            sys.exit(1)
 
 
 if __name__ == '__main__':
     main()
-

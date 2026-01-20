@@ -8,6 +8,8 @@ Pipedriveの特定パイプライン内にある全ステージの案件（企�
 - 各ステージの`status=open`のDeal一覧を取得
 - Dealの`title`フィールドを企業名として使用
 - ステージごとに企業名をグルーピング（重複除外）
+- **🆕 LLMによるパイプラインサマリの自動生成**（Claude API使用）
+- **🆕 サマリを親メッセージ、詳細をスレッドに投稿する構成**
 - PipedriveのWebhookと連携し、新規カードや特定ステージ到達を即時通知
 - 毎日09:00（JST）にSlackチャンネルに自動投稿
 
@@ -24,10 +26,31 @@ cd pipedrive-slack-notification
 
 リポジトリのSettings > Secrets and variables > Actionsから、以下のSecretsを追加してください：
 
+#### 必須の設定
+
 | Secret 名              | 説明                         | 取得方法                                    |
 | --------------------- | -------------------------- | --------------------------------------- |
 | `PIPEDRIVE_API_TOKEN` | Pipedrive個人APIトークン          | Pipedrive > Settings > Personal > API > Your personal API token |
 | `PIPELINE_ID`         | 対象のパイプラインID               | PipedriveのパイプラインURLから取得（例: `https://company.pipedrive.com/pipeline/123` の `123`） |
+
+#### 新モード: LLMサマリ + スレッド投稿（推奨）
+
+| Secret 名              | 説明                         | 取得方法                                    |
+| --------------------- | -------------------------- | --------------------------------------- |
+| `SLACK_BOT_TOKEN`     | Slack Bot OAuth Token       | Slack App管理画面 > OAuth & Permissions > Bot User OAuth Token（`xoxb-` で始まる） |
+| `SLACK_CHANNEL`       | 投稿先チャンネルID               | SlackでチャンネルIDを取得（例: `C0123456789`） |
+| `ANTHROPIC_API_KEY`   | Anthropic（Claude）APIキー     | [Anthropic Console](https://console.anthropic.com/) でAPIキーを発行 |
+
+> **Slack Appに必要な権限（OAuth Scopes）**:
+> - `chat:write` - メッセージの投稿
+> - `chat:write.public` - パブリックチャンネルへの投稿（Botが未参加でも可）
+
+#### レガシーモード: Incoming Webhook（後方互換性）
+
+上記の新モードのSecretが未設定の場合、従来のWebhookモードで動作します。
+
+| Secret 名              | 説明                         | 取得方法                                    |
+| --------------------- | -------------------------- | --------------------------------------- |
 | `SLACK_WEBHOOK_URL`   | Slack Incoming Webhook URL | Slack > Apps > Incoming Webhooks > Add to Slack > Webhook URL |
 
 ### 3. 営業担当者メンション設定
@@ -98,7 +121,15 @@ GitHub Actionsのワークフローを手動実行して動作確認できます
 # 依存パッケージのインストール
 pip install -r requirements.txt
 
-# 環境変数を設定して実行
+# 新モード: LLMサマリ + スレッド投稿
+export PIPEDRIVE_API_TOKEN="your-api-token"
+export PIPELINE_ID="your-pipeline-id"
+export SLACK_BOT_TOKEN="xoxb-your-bot-token"
+export SLACK_CHANNEL="C0123456789"
+export ANTHROPIC_API_KEY="sk-ant-your-api-key"
+python main.py
+
+# レガシーモード: Webhook（LLMサマリなし）
 export PIPEDRIVE_API_TOKEN="your-api-token"
 export PIPELINE_ID="your-pipeline-id"
 export SLACK_WEBHOOK_URL="your-webhook-url"
@@ -112,7 +143,29 @@ python main.py
 
 ## 出力例
 
-Slackに以下のようなメッセージが投稿されます：
+### 新モード（LLMサマリ + スレッド）
+
+**親メッセージ:**
+```
+📊 本日のNEWT Chat パイプライン状況 (15社)
+
+全体的にパイプラインは健全です ✨ リード獲得から商談セットまで順調に進行中！
+「Chat導入内諾」ステージに5社あり、agent準備のフェーズが活発化しています。
+本日は内諾済み案件のフォローアップを優先しましょう 💪
+```
+
+**スレッド（各ステージの詳細）:**
+```
+【リード】 (3社)
+株式会社AAA / 株式会社BBB / 株式会社CCC
+```
+
+```
+【商談セット】 (2社)
+株式会社DDD / 株式会社EEE
+```
+
+### レガシーモード（Webhook）
 
 ```
 本日のPipedriveパイプライン状況
@@ -132,8 +185,13 @@ Slackに以下のようなメッセージが投稿されます：
 
 ```
 .
-├── main.py                                    # メインスクリプト
-├── requirements.txt                           # 依存パッケージ
+├── main.py                                    # メインスクリプト（毎朝のレポート）
+├── api/
+│   └── deal-ui.js                            # Webhook受信 & Slack UI（Vercelなど向け）
+├── config/
+│   └── owner_slack_map.yaml                  # 担当者ID対応表
+├── requirements.txt                           # Python依存パッケージ
+├── package.json                               # Node.js依存パッケージ
 ├── .github/
 │   └── workflows/
 │       └── daily-pipeline-report.yml         # GitHub Actionsワークフロー
@@ -146,7 +204,14 @@ Slackに以下のようなメッセージが投稿されます：
 
 - GitHub Secretsが正しく設定されているか確認
 - GitHub Actionsの実行ログでエラーがないか確認
-- Slack Incoming Webhook URLが有効か確認
+- Slack Bot Tokenの権限（`chat:write`）を確認
+- チャンネルIDが正しいか確認（`C`で始まるID）
+
+### LLMサマリが生成されない
+
+- `ANTHROPIC_API_KEY`が正しく設定されているか確認
+- APIキーの利用制限に達していないか確認
+- エラーが発生した場合は自動的にシンプルなサマリにフォールバックします
 
 ### Pipedrive APIエラー
 
@@ -162,4 +227,3 @@ Slackに以下のようなメッセージが投稿されます：
 ## ライセンス
 
 このプロジェクトはMITライセンスの下で公開されています。
-
