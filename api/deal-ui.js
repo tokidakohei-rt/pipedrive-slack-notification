@@ -469,6 +469,11 @@ function isPipedriveWebhookPayload(body) {
 }
 
 async function handlePipedriveWebhook(body) {
+    // === 通知一時停止中 ===
+    // Pipedrive webhook通知を一時的に無効化しています
+    console.log('[Pipedrive] Webhook notifications are temporarily disabled.');
+    return;
+
     const event = classifyPipedriveEvent(body);
 
     if (!event) {
